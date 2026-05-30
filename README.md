@@ -165,7 +165,7 @@ Authorization: Bearer <your_jwt>
 
 The proxy verifies the token signature locally using `JWT_SECRET` — no network call to your auth service on every request.
 
-**Works with any JWT issuer that uses HS256**, including Strapi, custom auth servers, etc. Set `JWT_SECRET` to the same secret your issuer uses.
+**Works with any JWT issuer that uses HS256**, including Strapi, custom auth servers, etc. Set `JWT_SECRET` to the same secret your issuer uses. Tokens using other signing algorithms are rejected.
 
 ### Setup
 

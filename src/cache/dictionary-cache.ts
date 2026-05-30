@@ -77,13 +77,16 @@ export class DictionaryCache {
     staleTtlSeconds: number
   ): Promise<void> {
     const now = Date.now();
+    const freshUntil = now + cacheTtlSeconds * 1000;
+    const staleUntil = freshUntil + staleTtlSeconds * 1000;
+    const redisTtlSeconds = cacheTtlSeconds + staleTtlSeconds;
     const envelope: CacheEnvelope = {
-      freshUntil: now + cacheTtlSeconds * 1000,
-      staleUntil: now + staleTtlSeconds * 1000,
+      freshUntil,
+      staleUntil,
       response,
       provider
     };
 
-    await this.redis.set(key, JSON.stringify(envelope), "EX", staleTtlSeconds);
+    await this.redis.set(key, JSON.stringify(envelope), "EX", redisTtlSeconds);
   }
 }

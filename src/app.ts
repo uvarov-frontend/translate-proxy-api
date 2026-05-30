@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import fastifyJwt from "@fastify/jwt";
-import rateLimit from "@fastify/rate-limit";
+import rateLimit, { type RateLimitPluginOptions } from "@fastify/rate-limit";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { Redis } from "ioredis";
 import type { DictionaryCache } from "./cache/dictionary-cache.js";
@@ -21,21 +21,27 @@ export async function buildApp(cache: DictionaryCache) {
 
   await app.register(compress, { global: true, threshold: 512 });
 
-  const rateLimitRedis = new Redis(config.redisUrl, {
+  let rateLimitRedis: Redis | undefined = new Redis(config.redisUrl, {
     maxRetriesPerRequest: 1,
     enableReadyCheck: false,
     lazyConnect: true
   });
+  rateLimitRedis.on("error", (error) => {
+    app.log.debug({ error }, "Rate limit Redis error");
+  });
   await rateLimitRedis.connect().catch(() => {
     app.log.warn("Rate limit Redis unavailable — falling back to in-memory store");
+    rateLimitRedis?.disconnect();
+    rateLimitRedis = undefined;
   });
-  app.addHook("onClose", async () => { await rateLimitRedis.quit(); });
+  app.addHook("onClose", async () => {
+    if (rateLimitRedis) await rateLimitRedis.quit();
+  });
 
-  await app.register(rateLimit, {
+  const rateLimitOptions: RateLimitPluginOptions = {
     global: false,
     max: config.rateLimitMax,
     timeWindow: config.rateLimitWindowMs,
-    redis: rateLimitRedis,
     keyGenerator: (request) => request.ip,
     errorResponseBuilder: (_request, context) => ({
       ok: false,
@@ -44,7 +50,13 @@ export async function buildApp(cache: DictionaryCache) {
         message: `Too many requests — retry after ${Math.ceil(context.ttl / 1000)} seconds`
       }
     })
-  });
+  };
+
+  if (rateLimitRedis) {
+    rateLimitOptions.redis = rateLimitRedis;
+  }
+
+  await app.register(rateLimit, rateLimitOptions);
 
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
@@ -57,7 +69,10 @@ export async function buildApp(cache: DictionaryCache) {
   let authenticate: ((request: FastifyRequest, reply: FastifyReply) => Promise<void>) | undefined;
 
   if (config.authEnabled) {
-    await app.register(fastifyJwt, { secret: config.jwtSecret! });
+    await app.register(fastifyJwt, {
+      secret: config.jwtSecret!,
+      verify: { algorithms: ["HS256"] }
+    });
 
     authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
       try {
