@@ -21,6 +21,47 @@
 
 ## Быстрый старт
 
+### Вариант А — готовый образ с Docker Hub
+
+```bash
+cp .env.local.example .env.local
+# задайте JWT_SECRET в .env.local
+```
+
+Создайте `docker-compose.yml`:
+
+```yaml
+services:
+  app:
+    image: uvarovfrontend/translate-proxy-api:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3010:3010"
+    env_file:
+      - .env
+      - path: .env.local
+        required: false
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+```
+
+```bash
+docker compose up -d
+```
+
+### Вариант Б — сборка из исходников
+
 ```bash
 cp .env.local.example .env.local
 # задайте JWT_SECRET в .env.local
