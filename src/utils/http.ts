@@ -8,17 +8,13 @@ export async function fetchJson(
     signal: AbortSignal;
   }
 ): Promise<unknown> {
-  const timeoutController = new AbortController();
-  const timeout = setTimeout(() => timeoutController.abort(), options.timeoutMs);
-
-  const relayAbort = () => timeoutController.abort();
-  options.signal.addEventListener("abort", relayAbort, { once: true });
+  const signal = AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs)]);
 
   try {
     const response = await fetch(url, {
       method: "GET",
       headers: options.headers,
-      signal: timeoutController.signal
+      signal
     });
 
     if (!response.ok) {
@@ -36,8 +32,5 @@ export async function fetchJson(
     }
 
     throw new ProviderError("Upstream request failed", "UPSTREAM_REQUEST_FAILED", undefined, error);
-  } finally {
-    clearTimeout(timeout);
-    options.signal.removeEventListener("abort", relayAbort);
   }
 }

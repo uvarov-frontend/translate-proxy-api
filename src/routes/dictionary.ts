@@ -191,7 +191,7 @@ async function coalescedLookup(
   const existing = inFlightLookups.get(cacheKey);
   if (existing) return existing;
 
-  const promise = lookup(query, providers, AbortSignal.timeout(config.httpTimeoutMs * 2)).finally(() => {
+  const promise = lookup(query, providers, AbortSignal.timeout(config.httpTimeoutMs * providers.length)).finally(() => {
     inFlightLookups.delete(cacheKey);
   });
 
