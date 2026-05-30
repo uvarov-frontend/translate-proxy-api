@@ -1,0 +1,12 @@
+services:
+  translate-proxy:
+    build:
+      context: .
+      target: deps
+    command: npm run dev
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+    volumes:
+      - .:/app
+      - /app/node_modules

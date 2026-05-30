@@ -1,0 +1,61 @@
+name: Deploy
+
+on: workflow_dispatch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clean remote sources
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.KEY }}
+          script_stop: true
+          script: |
+            set -e
+            mkdir -p ${{ secrets.TARGET }}
+            cd ${{ secrets.TARGET }}
+            rm -rf src .github
+
+      - name: Copy repository contents via rsync
+        shell: bash
+        env:
+          HOST: ${{ secrets.HOST }}
+          USERNAME: ${{ secrets.USERNAME }}
+          PORT: ${{ secrets.PORT }}
+          KEY: ${{ secrets.KEY }}
+          TARGET: ${{ secrets.TARGET }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "$KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          rsync -az --delete --timeout=120 \
+            --exclude '.git/' \
+            --exclude 'node_modules/' \
+            --exclude 'dist/' \
+            -e "ssh -p $PORT" ./ "$USERNAME@$HOST:$TARGET/"
+
+      - name: Deploy Docker Compose app
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          port: ${{ secrets.PORT }}
+          key: ${{ secrets.KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ${{ secrets.TARGET }}
+            docker compose up -d --build --remove-orphans --wait --wait-timeout 60
+            docker compose ps
+            curl -fsS http://127.0.0.1:3010/health/ready
+            docker image prune -f
+            docker container prune -f
+            docker volume prune -f
