@@ -15,7 +15,7 @@ import { runProviders } from "../providers/provider-runner.js";
 type LookupResult = { response: ApiSuccessResponse; provider: string };
 
 type BatchItemResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; provider: string; cache: "HIT" | "STALE" | "MISS" }
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
 const BATCH_MAX_ITEMS = 50;
@@ -329,12 +329,12 @@ async function translateItem(
     const cacheHit = await cache.get(cacheKey);
 
     if (cacheHit.kind === "fresh") {
-      return { ok: true, text: cacheHit.response.data.text };
+      return { ok: true, text: cacheHit.response.data.text, provider: cacheHit.provider, cache: "HIT" };
     }
 
     if (cacheHit.kind === "stale" && isCacheableDictionaryResponse(cacheHit.response)) {
       revalidateInBackground(app, cache, cacheKey, query, activeProviders);
-      return { ok: true, text: cacheHit.response.data.text };
+      return { ok: true, text: cacheHit.response.data.text, provider: cacheHit.provider, cache: "STALE" };
     }
   } catch (error) {
     app.log.warn({ error, cacheKey }, "Dictionary cache read failed");
@@ -343,7 +343,7 @@ async function translateItem(
   try {
     const { response, provider } = await coalescedLookup(cacheKey, query, activeProviders);
     persistToCache(app, cache, cacheKey, response, provider);
-    return { ok: true, text: response.data.text };
+    return { ok: true, text: response.data.text, provider, cache: "MISS" };
   } catch {
     return {
       ok: false,

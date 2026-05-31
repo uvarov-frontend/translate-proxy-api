@@ -8,6 +8,10 @@ A lightweight self-hosted translation proxy. Send a source language, target lang
 
 Responses are cached in Redis so repeated lookups return in under 1 ms without hitting any upstream service.
 
+**[Live demo →](https://uvarov-frontend.github.io/translate-proxy-api/)**
+
+> **Note:** The demo server at `translate.uvarov.tech` is for demonstration purposes only. It is rate-limited to 10 requests per 30 minutes per IP and may be unavailable at any time. Do not use it in your own projects — deploy your own instance instead.
+
 ---
 
 ## Features

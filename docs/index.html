@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Translate Proxy API — Live Demo</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --border: #2a2d3a;
+      --text: #e2e8f0;
+      --muted: #8892a4;
+      --accent: #6366f1;
+      --accent-hover: #4f52e0;
+      --error: #ef4444;
+      --radius: 8px;
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --mono: "SF Mono", "Fira Code", "Fira Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 56px 16px 80px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 640px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    header h1 {
+      font-size: 1.625rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 10px;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    header a { color: var(--accent); text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    .lang-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    select {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      font-family: var(--font);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23e2e8f0' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+
+    select:focus { outline: none; border-color: var(--accent); }
+
+    .swap-btn {
+      flex-shrink: 0;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.15s;
+      font-size: 1rem;
+    }
+
+    .swap-btn:hover { border-color: var(--accent); background: none; }
+
+    .mode-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 10px;
+    }
+
+    .mode-toggle {
+      display: flex;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .mode-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      padding: 5px 14px;
+      font-size: 0.8rem;
+      font-family: var(--font);
+      font-weight: 500;
+      cursor: pointer;
+      width: auto;
+      border-radius: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .mode-btn + .mode-btn { border-left: 1px solid var(--border); }
+
+    .mode-btn.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .mode-btn:not(.active):hover { color: var(--text); }
+
+    textarea {
+      width: 100%;
+      min-height: 110px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      resize: vertical;
+      margin-bottom: 14px;
+    }
+
+    textarea::placeholder { color: var(--muted); }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .bottom-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .bottom-row select {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .bottom-row button {
+      flex: 1 1 160px;
+    }
+
+    button {
+      width: 100%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* single result */
+    .result {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      line-height: 1.6;
+      display: none;
+    }
+
+    .result.success {
+      display: block;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+
+    .result.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.08);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      color: #fca5a5;
+    }
+
+    .result-text {
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .badges {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      font-size: 0.72rem;
+      font-family: var(--mono);
+      color: var(--muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+
+    /* batch result */
+    .batch-list {
+      margin-top: 14px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .batch-list.visible { display: flex; }
+
+    .batch-item {
+      display: flex;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius);
+      font-size: 0.9rem;
+      line-height: 1.55;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+
+    .batch-item.batch-error {
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+
+    .batch-num {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: var(--muted);
+      flex-shrink: 0;
+      padding-top: 2px;
+      min-width: 18px;
+    }
+
+    .batch-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+      flex: 1;
+    }
+
+    .batch-item.batch-error .batch-text { color: #fca5a5; }
+
+    footer {
+      margin-top: 28px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.7;
+    }
+
+    footer code {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Translate Proxy API</h1>
+      <p>
+        Self-hosted translation proxy with Redis caching and provider fallback chain.<br>
+        <a href="https://github.com/uvarov-frontend/translate-proxy-api" target="_blank" rel="noopener">View on GitHub</a>
+      </p>
+    </header>
+
+    <div class="card">
+      <div class="lang-row">
+        <select id="source" aria-label="Source language">
+          <option value="en">English</option>
+          <option value="ru">Russian</option>
+          <option value="de">German</option>
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="uk">Ukrainian</option>
+          <option value="pl">Polish</option>
+          <option value="tr">Turkish</option>
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="ar">Arabic</option>
+        </select>
+        <button type="button" class="swap-btn" id="swap" aria-label="Swap languages">⇄</button>
+        <select id="target" aria-label="Target language">
+          <option value="ru">Russian</option>
+          <option value="en">English</option>
+          <option value="de">German</option>
+          <option value="fr">French</option>
+          <option value="es">Spanish</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="uk">Ukrainian</option>
+          <option value="pl">Polish</option>
+          <option value="tr">Turkish</option>
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="ar">Arabic</option>
+        </select>
+      </div>
+
+      <div class="mode-row">
+        <div class="mode-toggle" role="group" aria-label="Translation mode">
+          <button type="button" class="mode-btn active" id="mode-single">Single</button>
+          <button type="button" class="mode-btn" id="mode-batch">Batch</button>
+        </div>
+      </div>
+
+      <textarea id="text" placeholder="Enter text to translate…" maxlength="2000"></textarea>
+
+      <div class="bottom-row">
+        <select id="provider" aria-label="Provider">
+          <option value="">Auto (fallback chain)</option>
+          <option value="google-translate">google-translate</option>
+          <option value="google-dictionary-extension">google-dictionary-extension</option>
+          <option value="yandex-translate">yandex-translate</option>
+        </select>
+        <button id="btn" disabled>Translate</button>
+      </div>
+
+      <div id="result" class="result" role="status" aria-live="polite"></div>
+      <div id="batch-list" class="batch-list" role="status" aria-live="polite"></div>
+    </div>
+
+    <footer>
+      <p><code>POST https://translate.uvarov.tech/translate/</code></p>
+      <p style="margin-top:6px">No API key required &mdash; limited to 10 requests per 30 minutes per IP</p>
+    </footer>
+  </div>
+
+  <script>
+    const btn       = document.getElementById('btn');
+    const textEl    = document.getElementById('text');
+    const resultEl  = document.getElementById('result');
+    const batchList = document.getElementById('batch-list');
+
+    let isBatch = false;
+
+    // ── mode toggle ──────────────────────────────────────────────
+    document.getElementById('mode-single').addEventListener('click', () => setMode(false));
+    document.getElementById('mode-batch').addEventListener('click',  () => setMode(true));
+
+    function setMode(batch) {
+      isBatch = batch;
+      document.getElementById('mode-single').classList.toggle('active', !batch);
+      document.getElementById('mode-batch').classList.toggle('active', batch);
+      textEl.placeholder = batch
+        ? 'One text per line…'
+        : 'Enter text to translate…';
+      textEl.removeAttribute('maxlength');
+      if (!batch) textEl.setAttribute('maxlength', '2000');
+      clearResults();
+    }
+
+    // ── disable button when empty ────────────────────────────────
+    textEl.addEventListener('input', () => {
+      btn.disabled = !textEl.value.trim();
+    });
+
+    // ── swap languages ───────────────────────────────────────────
+    document.getElementById('swap').addEventListener('click', () => {
+      const src = document.getElementById('source');
+      const tgt = document.getElementById('target');
+      const tmp = src.value;
+      src.value = tgt.value;
+      tgt.value = tmp;
+    });
+
+    // ── translate ────────────────────────────────────────────────
+    btn.addEventListener('click', () => isBatch ? translateBatch() : translateSingle());
+
+    textEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        if (!btn.disabled) isBatch ? translateBatch() : translateSingle();
+      }
+    });
+
+    function getParams() {
+      return {
+        source:   document.getElementById('source').value,
+        target:   document.getElementById('target').value,
+        provider: document.getElementById('provider').value
+      };
+    }
+
+    async function translateSingle() {
+      const { source, target, provider } = getParams();
+      const text = textEl.value.trim();
+
+      if (source === target) { showError('Source and target languages must be different'); return; }
+
+      setLoading(true);
+      clearResults();
+
+      try {
+        const res = await fetch('https://translate.uvarov.tech/translate/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source, target, text, ...(provider && { provider }) })
+        });
+
+        const data = await res.json();
+
+        if (data.ok) {
+          const cache    = res.headers.get('x-cache') ?? '';
+          const provHdr  = res.headers.get('x-provider') ?? '';
+          const badges   = [provHdr && `provider: ${provHdr}`, cache && `cache: ${cache}`].filter(Boolean);
+
+          resultEl.className = 'result success';
+          resultEl.innerHTML =
+            `<div class="result-text">${escapeHtml(data.data.text)}</div>` +
+            (badges.length ? `<div class="badges">${badges.map(b => `<span class="badge">${escapeHtml(b)}</span>`).join('')}</div>` : '');
+        } else {
+          showError(data.error?.message ?? 'Unknown error');
+        }
+      } catch {
+        showError('Network error — could not reach the API');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function translateBatch() {
+      const { source, target, provider } = getParams();
+      const lines = textEl.value.split('\n').map(l => l.trim()).filter(Boolean);
+
+      if (!lines.length) return;
+      if (source === target) { showError('Source and target languages must be different'); return; }
+
+      setLoading(true);
+      clearResults();
+
+      try {
+        const items = lines.map(text => ({ source, target, text, ...(provider && { provider }) }));
+
+        const res  = await fetch('https://translate.uvarov.tech/translate/batch/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(items)
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) { showError(data.error?.message ?? 'Unknown error'); return; }
+
+        batchList.innerHTML = data.data.map((item, i) => {
+          const num = `<span class="batch-num">${i + 1}</span>`;
+          if (item.ok) {
+            const badges = [
+              item.provider && `provider: ${item.provider}`,
+              item.cache    && `cache: ${item.cache}`
+            ].filter(Boolean);
+            const badgesHtml = badges.length
+              ? `<div class="badges" style="margin-top:6px">${badges.map(b => `<span class="badge">${escapeHtml(b)}</span>`).join('')}</div>`
+              : '';
+            return `<div class="batch-item">${num}<div><div class="batch-text">${escapeHtml(item.text)}</div>${badgesHtml}</div></div>`;
+          } else {
+            return `<div class="batch-item batch-error">${num}<span class="batch-text">${escapeHtml(item.error?.message ?? 'Error')}</span></div>`;
+          }
+        }).join('');
+
+        batchList.classList.add('visible');
+      } catch {
+        showError('Network error — could not reach the API');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // ── helpers ──────────────────────────────────────────────────
+    function setLoading(loading) {
+      btn.disabled = loading || !textEl.value.trim();
+      btn.textContent = loading ? 'Translating…' : 'Translate';
+    }
+
+    function clearResults() {
+      resultEl.className = 'result';
+      resultEl.innerHTML = '';
+      batchList.classList.remove('visible');
+      batchList.innerHTML = '';
+    }
+
+    function showError(msg) {
+      resultEl.className = 'result error';
+      resultEl.textContent = msg;
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  </script>
+</body>
+</html>
