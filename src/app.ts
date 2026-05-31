@@ -62,6 +62,7 @@ export async function buildApp(cache: DictionaryCache) {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
     methods: ["POST"],
     allowedHeaders: ["content-type", "authorization"],
+    exposedHeaders: ["x-cache", "x-provider", "etag", "cache-control"],
     credentials: false,
     maxAge: 600
   });
