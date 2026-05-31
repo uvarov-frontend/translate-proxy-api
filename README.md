@@ -4,7 +4,7 @@
 
 A lightweight self-hosted translation proxy. Send a source language, target language and text — get back a clean translation. Built for embedding into your own infrastructure.
 
-**Free to use** — ships with two built-in Google providers, no API keys or billing required. You can also plug in your own provider.
+**Free to use** — ships with three built-in providers (two from Google, one from Yandex), no API keys or billing required. You can also plug in your own provider.
 
 Responses are cached in Redis so repeated lookups return in under 1 ms without hitting any upstream service.
 
@@ -26,8 +26,8 @@ Responses are cached in Redis so repeated lookups return in under 1 ms without h
 ### Option A — prebuilt image from Docker Hub
 
 ```bash
-cp .env.local.example .env.local
-# set JWT_SECRET in .env.local
+cp .env.example .env
+# edit .env and configure your settings
 ```
 
 Create a `docker-compose.yml`:
@@ -41,8 +41,6 @@ services:
       - "127.0.0.1:3010:3010"
     env_file:
       - .env
-      - path: .env.local
-        required: false
     depends_on:
       redis:
         condition: service_healthy
@@ -65,8 +63,8 @@ docker compose up -d
 ### Option B — build from source
 
 ```bash
-cp .env.local.example .env.local
-# set JWT_SECRET in .env.local
+cp .env.example .env
+# edit .env and configure your settings
 
 docker compose up -d --build
 ```
@@ -124,13 +122,27 @@ Cache-Control: public, max-age=21340, stale-while-revalidate=604800
 ETag: "3a1f9c2b4d6e8a0b"
 ```
 
+### Pin a specific provider
+
+Add `"provider"` to the request body to use a specific provider instead of the fallback chain:
+
+```bash
+curl -X POST 'http://127.0.0.1:3010/translate/' \
+  -H 'Authorization: Bearer <your_jwt>' \
+  -H 'Content-Type: application/json' \
+  --data '{"source":"en","target":"ru","text":"Good morning","provider":"yandex-translate"}'
+```
+
+Available values match `PROVIDER_ORDER`: `google-translate`, `yandex-translate`, `google-dictionary-extension`.
+
 ### Request body
 
-| Field    | Type   | Limit          |
-|----------|--------|----------------|
-| `source` | string | max 32 chars   |
-| `target` | string | max 32 chars   |
-| `text`   | string | max 2000 chars |
+| Field      | Type   | Required | Limit          |
+|------------|--------|----------|----------------|
+| `source`   | string | yes      | max 32 chars   |
+| `target`   | string | yes      | max 32 chars   |
+| `text`     | string | yes      | max 2000 chars |
+| `provider` | string | no       | Pin a specific provider from `PROVIDER_ORDER` |
 
 ### Error responses
 
@@ -170,10 +182,10 @@ The proxy verifies the token signature locally using `JWT_SECRET` — no network
 ### Setup
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env
 ```
 
-Open `.env.local` and set `JWT_SECRET`. For Strapi this is the `JWT_SECRET` value from your Strapi environment.
+Open `.env` and set `JWT_SECRET`. For Strapi this is the `JWT_SECRET` value from your Strapi environment.
 
 To generate a strong secret:
 
@@ -183,7 +195,7 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 ### Disable authentication
 
-For public or fully internal deployments, set in `.env`:
+For public or fully internal deployments, set in `.env` (gitignored):
 
 ```
 AUTH_ENABLED=false
@@ -193,12 +205,12 @@ AUTH_ENABLED=false
 
 ## Configuration
 
-Public settings live in `.env`. Secrets go in `.env.local` (gitignored, never committed).
+All settings live in `.env` (gitignored, never committed). Copy `.env.example` to get started.
 
 | Variable                 | Default                                        | Description                                                   |
 |--------------------------|------------------------------------------------|---------------------------------------------------------------|
 | `AUTH_ENABLED`           | `true`                                         | Set to `false` to disable JWT authentication                  |
-| `JWT_SECRET`             | —                                              | Required when `AUTH_ENABLED=true`. Set in `.env.local`        |
+| `JWT_SECRET`             | —                                              | Required when `AUTH_ENABLED=true`. Set in `.env`              |
 | `LOG_LEVEL`              | `info`                                         | `trace` `debug` `info` `warn` `error`                         |
 | `REDIS_URL`              | `redis://127.0.0.1:6379/0`                     | Redis connection URL                                          |
 | `REDIS_MAXMEMORY`        | `256mb`                                        | Redis memory cap; eviction policy is `allkeys-lru`            |
@@ -239,12 +251,13 @@ docker compose exec redis redis-cli --scan --pattern "dictionary:v1:*" | xargs d
 
 ## Providers
 
-The proxy ships with two providers out of the box:
+The proxy ships with three providers out of the box:
 
 | Name                          | Description                     |
 |-------------------------------|---------------------------------|
-| `google-translate`            | Unofficial Google Translate API |
-| `google-dictionary-extension` | Google Dictionary Extension API |
+| `google-translate`            | Unofficial Google Translate API  |
+| `google-dictionary-extension` | Google Dictionary Extension API  |
+| `yandex-translate`            | Unofficial Yandex Translate API  |
 
 `PROVIDER_ORDER` controls priority. The first provider is tried; if it fails the next one takes over automatically:
 
@@ -254,6 +267,9 @@ PROVIDER_ORDER=google-translate
 
 # with automatic fallback
 PROVIDER_ORDER=google-translate,google-dictionary-extension
+
+# three providers, maximum resilience
+PROVIDER_ORDER=google-translate,yandex-translate,google-dictionary-extension
 ```
 
 **Adding a custom provider:**

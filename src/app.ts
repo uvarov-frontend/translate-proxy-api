@@ -60,7 +60,7 @@ export async function buildApp(cache: DictionaryCache) {
 
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
-    methods: ["GET", "POST"],
+    methods: ["POST"],
     allowedHeaders: ["content-type", "authorization"],
     credentials: false,
     maxAge: 600

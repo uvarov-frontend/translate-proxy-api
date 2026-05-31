@@ -22,6 +22,7 @@ export class GoogleDictionaryExtensionProvider implements DictionaryProvider {
     url.searchParams.set("strategy", "2");
 
     const payload = await fetchJson(url, {
+      method: "GET",
       timeoutMs: config.httpTimeoutMs,
       signal,
       headers: {

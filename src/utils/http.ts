@@ -3,7 +3,9 @@ import { ProviderError } from "./errors.js";
 export async function fetchJson(
   url: URL,
   options: {
+    method: "GET" | "POST";
     headers?: Record<string, string>;
+    body?: string;
     timeoutMs: number;
     signal: AbortSignal;
   }
@@ -12,8 +14,9 @@ export async function fetchJson(
 
   try {
     const response = await fetch(url, {
-      method: "GET",
+      method: options.method,
       headers: options.headers,
+      body: options.body,
       signal
     });
 

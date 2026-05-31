@@ -9,7 +9,8 @@ export function normalizeQuery(query: DictionaryQuery): DictionaryQuery {
   };
 }
 
-export function createDictionaryCacheKey(query: DictionaryQuery): string {
+export function createDictionaryCacheKey(query: DictionaryQuery, provider?: string): string {
   const textHash = createHash("sha1").update(query.text).digest("hex");
-  return `dictionary:v1:${query.source}:${query.target}:${textHash}`;
+  const base = `dictionary:v1:${query.source}:${query.target}:${textHash}`;
+  return provider ? `${base}:${provider}` : base;
 }

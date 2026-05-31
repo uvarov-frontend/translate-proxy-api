@@ -4,8 +4,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-      - path: .env.local
-        required: false
     environment:
       HOST: 0.0.0.0
       PORT: 3000

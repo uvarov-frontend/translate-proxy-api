@@ -23,7 +23,8 @@ const dictionarySchema = {
     properties: {
       source: { type: "string", maxLength: 32 },
       target: { type: "string", maxLength: 32 },
-      text: { type: "string", maxLength: 2000 }
+      text: { type: "string", maxLength: 2000 },
+      provider: { type: "string", maxLength: 64 }
     },
     additionalProperties: false
   },
@@ -83,7 +84,26 @@ function handleDictionaryRequest(
       return reply.code(400).send(response);
     }
 
-    const cacheKey = createDictionaryCacheKey(query);
+    const { provider: providerParam } = request.body as { provider?: string };
+    const pinnedProviderName = providerParam?.trim().toLowerCase();
+    let activeProviders = providers;
+
+    if (pinnedProviderName) {
+      const pinned = providers.find((p) => p.name === pinnedProviderName);
+      if (!pinned) {
+        const response: ApiErrorResponse = {
+          ok: false,
+          error: {
+            code: "BAD_REQUEST",
+            message: `Unknown provider: "${pinnedProviderName}". Available: ${providers.map((p) => p.name).join(", ")}`
+          }
+        };
+        return reply.code(400).send(response);
+      }
+      activeProviders = [pinned];
+    }
+
+    const cacheKey = createDictionaryCacheKey(query, pinnedProviderName);
 
     try {
       const cacheHit = await cache.get(cacheKey);
@@ -96,7 +116,7 @@ function handleDictionaryRequest(
       }
 
       if (cacheHit.kind === "stale" && isCacheableDictionaryResponse(cacheHit.response)) {
-        revalidateInBackground(app, cache, cacheKey, query, providers);
+        revalidateInBackground(app, cache, cacheKey, query, activeProviders);
         reply.header("X-Provider", cacheHit.provider);
         return sendWithETag(request, reply, cacheHit.response, "STALE", "no-store");
       }
@@ -105,7 +125,7 @@ function handleDictionaryRequest(
     }
 
     try {
-      const { response, provider } = await coalescedLookup(cacheKey, query, providers);
+      const { response, provider } = await coalescedLookup(cacheKey, query, activeProviders);
       persistToCache(app, cache, cacheKey, response, provider);
 
       const maxAge = isCacheableDictionaryResponse(response) ? config.cacheTtlSeconds : config.emptyCacheTtlSeconds;

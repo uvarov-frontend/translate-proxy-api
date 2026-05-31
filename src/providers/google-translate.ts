@@ -17,6 +17,7 @@ export class GoogleTranslateProvider implements DictionaryProvider {
     url.searchParams.set("q", query.text);
 
     const payload = await fetchJson(url, {
+      method: "GET",
       timeoutMs: config.httpTimeoutMs,
       signal,
       headers: {

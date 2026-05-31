@@ -40,7 +40,7 @@ jobs:
             --exclude '.git/' \
             --exclude 'node_modules/' \
             --exclude 'dist/' \
-            --exclude '.env.local' \
+            --exclude '.env' \
             -e "ssh -p $PORT" ./ "$USERNAME@$HOST:$TARGET/"
 
       - name: Deploy Docker Compose app

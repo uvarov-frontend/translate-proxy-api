@@ -2,7 +2,7 @@
 
 Лёгкий self-hosted прокси-переводчик. Отправляете исходный язык, целевой язык и текст — получаете чистый перевод. Создан для встраивания в собственную инфраструктуру.
 
-**Бесплатный** — поставляется с двумя встроенными провайдерами от Google, без API-ключей и оплаты. Можно подключить собственный провайдер.
+**Бесплатный** — поставляется с тремя встроенными провайдерами (два от Google, один от Яндекса), без API-ключей и оплаты. Можно подключить собственный провайдер.
 
 Ответы кешируются в Redis, поэтому повторные запросы возвращаются менее чем за 1 мс без обращения к внешним сервисам.
 
@@ -24,8 +24,8 @@
 ### Вариант А — готовый образ с Docker Hub
 
 ```bash
-cp .env.local.example .env.local
-# задайте JWT_SECRET в .env.local
+cp .env.example .env
+# отредактируйте .env и настройте параметры
 ```
 
 Создайте `docker-compose.yml`:
@@ -39,8 +39,6 @@ services:
       - "127.0.0.1:3010:3010"
     env_file:
       - .env
-      - path: .env.local
-        required: false
     depends_on:
       redis:
         condition: service_healthy
@@ -63,8 +61,8 @@ docker compose up -d
 ### Вариант Б — сборка из исходников
 
 ```bash
-cp .env.local.example .env.local
-# задайте JWT_SECRET в .env.local
+cp .env.example .env
+# отредактируйте .env и настройте параметры
 
 docker compose up -d --build
 ```
@@ -122,13 +120,27 @@ Cache-Control: public, max-age=21340, stale-while-revalidate=604800
 ETag: "3a1f9c2b4d6e8a0b"
 ```
 
+### Выбор провайдера
+
+Добавьте `"provider"` в тело запроса чтобы использовать конкретный провайдер вместо цепочки fallback:
+
+```bash
+curl -X POST 'http://127.0.0.1:3010/translate/' \
+  -H 'Authorization: Bearer <ваш_jwt>' \
+  -H 'Content-Type: application/json' \
+  --data '{"source":"en","target":"ru","text":"Good morning","provider":"yandex-translate"}'
+```
+
+Доступные значения соответствуют `PROVIDER_ORDER`: `google-translate`, `yandex-translate`, `google-dictionary-extension`.
+
 ### Тело запроса
 
-| Поле     | Тип    | Ограничение      |
-|----------|--------|------------------|
-| `source` | string | макс. 32 символа |
-| `target` | string | макс. 32 символа |
-| `text`   | string | макс. 2000 символов |
+| Поле       | Тип    | Обязателен | Ограничение      |
+|------------|--------|------------|------------------|
+| `source`   | string | да         | макс. 32 символа |
+| `target`   | string | да         | макс. 32 символа |
+| `text`     | string | да         | макс. 2000 символов |
+| `provider` | string | нет        | Конкретный провайдер из `PROVIDER_ORDER` |
 
 ### Ошибки
 
@@ -168,10 +180,10 @@ Authorization: Bearer <ваш_jwt>
 ### Настройка
 
 ```bash
-cp .env.local.example .env.local
+cp .env.example .env
 ```
 
-Откройте `.env.local` и задайте `JWT_SECRET`. Для Strapi это значение `JWT_SECRET` из вашего окружения Strapi.
+Откройте `.env` и задайте `JWT_SECRET`. Для Strapi это значение `JWT_SECRET` из вашего окружения Strapi.
 
 Сгенерировать надёжный секрет:
 
@@ -191,12 +203,12 @@ AUTH_ENABLED=false
 
 ## Конфигурация
 
-Публичные настройки хранятся в `.env`. Секреты — в `.env.local` (добавлен в `.gitignore`, никогда не коммитится).
+Все настройки хранятся в `.env` (добавлен в `.gitignore`, никогда не коммитится). Скопируйте `.env.example` для начала работы.
 
 | Переменная               | По умолчанию                                   | Описание                                                       |
 |--------------------------|------------------------------------------------|----------------------------------------------------------------|
 | `AUTH_ENABLED`           | `true`                                         | `false` — отключить JWT-аутентификацию                         |
-| `JWT_SECRET`             | —                                              | Обязателен при `AUTH_ENABLED=true`. Задать в `.env.local`      |
+| `JWT_SECRET`             | —                                              | Обязателен при `AUTH_ENABLED=true`. Задать в `.env`            |
 | `LOG_LEVEL`              | `info`                                         | `trace` `debug` `info` `warn` `error`                          |
 | `REDIS_URL`              | `redis://127.0.0.1:6379/0`                     | Адрес подключения к Redis                                      |
 | `REDIS_MAXMEMORY`        | `256mb`                                        | Лимит памяти Redis; политика вытеснения — `allkeys-lru`        |
@@ -237,12 +249,13 @@ docker compose exec redis redis-cli --scan --pattern "dictionary:v1:*" | xargs d
 
 ## Провайдеры
 
-Из коробки доступны два провайдера:
+Из коробки доступны три провайдера:
 
-| Имя                           | Описание                           |
-|-------------------------------|------------------------------------|
-| `google-translate`            | Неофициальный Google Translate API |
-| `google-dictionary-extension` | Google Dictionary Extension API    |
+| Имя                           | Описание                            |
+|-------------------------------|-------------------------------------|
+| `google-translate`            | Неофициальный Google Translate API  |
+| `google-dictionary-extension` | Google Dictionary Extension API     |
+| `yandex-translate`            | Неофициальный Yandex Translate API  |
 
 `PROVIDER_ORDER` задаёт приоритет. Первый провайдер пробуется первым; если он недоступен — автоматически подключается следующий:
 
@@ -252,6 +265,9 @@ PROVIDER_ORDER=google-translate
 
 # с автоматическим fallback
 PROVIDER_ORDER=google-translate,google-dictionary-extension
+
+# три провайдера, максимальная надёжность
+PROVIDER_ORDER=google-translate,yandex-translate,google-dictionary-extension
 ```
 
 **Добавить собственный провайдер:**
