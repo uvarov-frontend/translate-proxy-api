@@ -10,14 +10,14 @@ Responses are cached in Redis so repeated lookups return in under 1 ms without h
 
 **[Live demo →](https://uvarov-frontend.github.io/translate-proxy-api/)**
 
-> **Note:** The demo server at `translate.uvarov.tech` is for demonstration purposes only. It is rate-limited to 10 requests per 30 minutes per IP and may be unavailable at any time. Do not use it in your own projects — deploy your own instance instead.
+> **Note:** The demo server at `translate.uvarov.tech` is for demonstration purposes only. Unlike the default self-hosted configuration, the demo allows unauthenticated requests. It is rate-limited to 10 requests per 30 minutes per IP and may be unavailable at any time. Do not use it in your own projects — deploy your own instance instead.
 
 ---
 
 ## Features
 
 - **JWT authentication** — enabled by default; pass the token your auth service already issues, no extra login step
-- **Batch translation** — translate up to 50 texts in a single request; items are processed with bounded concurrency (up to 10 upstream calls at a time) and fail independently
+- **Batch translation** — translate up to 50 texts in a single request; items are processed with bounded concurrency (up to 10 upstream calls at a time), with processing failures reported per item
 - **Smart caching** — stale responses are served instantly while a background refresh runs silently
 - **Request coalescing** — dozens of identical simultaneous requests result in a single upstream call
 - **Fallback chain** — configure multiple providers in priority order; the next provider is tried automatically on error or empty response
@@ -141,7 +141,9 @@ ETag: "3a1f9c2b4d6e8a0b"
 
 ### POST /translate/batch/
 
-Translate up to 50 texts in one request. Items are processed with up to 10 concurrent upstream calls — one failure does not abort the rest. Each item supports the same fields as the single endpoint, including the optional `"provider"`.
+Translate up to 50 texts in one request. Items are processed with up to 10 concurrent upstream calls. Provider failures and semantic item errors do not abort the rest. Each item supports the same fields as the single endpoint, including the optional `"provider"`.
+
+The request body is schema-validated before processing. A malformed item, such as one with a missing field, wrong type or extra field, rejects the entire batch with HTTP `400`.
 
 ```bash
 curl -X POST 'http://127.0.0.1:3010/translate/batch/' \
@@ -163,7 +165,7 @@ curl -X POST 'http://127.0.0.1:3010/translate/batch/' \
 }
 ```
 
-If an item fails, the rest still succeed — it returns `ok: false` inline:
+If a validly shaped item fails during processing, the rest still succeed — it returns `ok: false` inline:
 
 ```json
 {
