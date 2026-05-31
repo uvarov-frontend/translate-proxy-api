@@ -1,7 +1,6 @@
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import fastifyJwt from "@fastify/jwt";
-import rateLimit, { type RateLimitPluginOptions } from "@fastify/rate-limit";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { Redis } from "ioredis";
 import type { DictionaryCache } from "./cache/dictionary-cache.js";
@@ -9,6 +8,7 @@ import { config } from "./config/env.js";
 import { buildProviderByName } from "./providers/registry.js";
 import { registerDictionaryRoutes } from "./routes/dictionary.js";
 import { registerHealthRoutes } from "./routes/health.js";
+import { createRateLimiter } from "./utils/rate-limiter.js";
 
 export async function buildApp(cache: DictionaryCache) {
   const app = Fastify({
@@ -38,18 +38,7 @@ export async function buildApp(cache: DictionaryCache) {
     if (rateLimitRedis) await rateLimitRedis.quit();
   });
 
-  const rateLimitOptions: RateLimitPluginOptions = {
-    global: false,
-    max: config.rateLimitMax,
-    timeWindow: config.rateLimitWindowMs,
-    keyGenerator: (request) => request.ip
-  };
-
-  if (rateLimitRedis) {
-    rateLimitOptions.redis = rateLimitRedis;
-  }
-
-  await app.register(rateLimit, rateLimitOptions);
+  const rateLimiter = createRateLimiter(rateLimitRedis, config.rateLimitMax, config.rateLimitWindowMs);
 
   await app.register(cors, {
     origin: config.corsOrigins.includes("*") ? true : config.corsOrigins,
@@ -131,7 +120,7 @@ export async function buildApp(cache: DictionaryCache) {
   });
 
   await registerHealthRoutes(app, cache);
-  await registerDictionaryRoutes(app, cache, providers, authenticate);
+  await registerDictionaryRoutes(app, cache, providers, authenticate, rateLimiter);
 
   return app;
 }

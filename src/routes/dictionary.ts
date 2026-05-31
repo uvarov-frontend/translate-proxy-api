@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler, onRequestHookHandler } from "fastify";
 import { createDictionaryCacheKey, normalizeQuery } from "../cache/cache-key.js";
 import type { DictionaryCache } from "../cache/dictionary-cache.js";
 import { config } from "../config/env.js";
@@ -73,25 +73,20 @@ export async function registerDictionaryRoutes(
   app: FastifyInstance,
   cache: DictionaryCache,
   providers: DictionaryProvider[],
-  authenticate?: preHandlerHookHandler
+  authenticate?: preHandlerHookHandler,
+  rateLimiter?: onRequestHookHandler
 ): Promise<void> {
+  const onRequest = [rateLimiter, authenticate].filter(Boolean) as onRequestHookHandler[];
+
   app.post(
     "/translate/",
-    {
-      schema: dictionarySchema,
-      config: { rateLimit: {} },
-      ...(authenticate ? { onRequest: authenticate } : {})
-    },
+    { schema: dictionarySchema, ...(onRequest.length ? { onRequest } : {}) },
     handleDictionaryRequest(app, cache, providers)
   );
 
   app.post(
     "/translate/batch/",
-    {
-      schema: batchSchema,
-      config: { rateLimit: {} },
-      ...(authenticate ? { onRequest: authenticate } : {})
-    },
+    { schema: batchSchema, ...(onRequest.length ? { onRequest } : {}) },
     handleBatchRequest(app, cache, providers)
   );
 }
