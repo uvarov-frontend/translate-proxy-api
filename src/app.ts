@@ -42,14 +42,7 @@ export async function buildApp(cache: DictionaryCache) {
     global: false,
     max: config.rateLimitMax,
     timeWindow: config.rateLimitWindowMs,
-    keyGenerator: (request) => request.ip,
-    errorResponseBuilder: (_request, context) => ({
-      ok: false,
-      error: {
-        code: "RATE_LIMITED",
-        message: `Too many requests — retry after ${Math.ceil(context.ttl / 1000)} seconds`
-      }
-    })
+    keyGenerator: (request) => request.ip
   };
 
   if (rateLimitRedis) {
@@ -103,9 +96,20 @@ export async function buildApp(cache: DictionaryCache) {
   });
 
   app.setErrorHandler(async (error, _request, reply) => {
-    const appError = error as { message?: string; statusCode?: number };
+    const appError = error as { message?: string; statusCode?: number; code?: string };
     const statusCode =
       appError.statusCode && appError.statusCode >= 400 ? appError.statusCode : 500;
+
+    if (statusCode === 429) {
+      const retryAfter = Number(reply.getHeader("retry-after") ?? 0);
+      return reply.code(429).send({
+        ok: false,
+        error: {
+          code: "RATE_LIMITED",
+          message: `Too many requests — retry after ${retryAfter} seconds`
+        }
+      });
+    }
 
     return reply.code(statusCode).send({
       ok: false,
