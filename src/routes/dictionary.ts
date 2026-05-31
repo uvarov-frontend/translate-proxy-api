@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerHookHandler, onRequestHookHandler } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest, onRequestHookHandler } from "fastify";
 import { createDictionaryCacheKey, normalizeQuery } from "../cache/cache-key.js";
 import type { DictionaryCache } from "../cache/dictionary-cache.js";
 import { config } from "../config/env.js";
@@ -11,14 +11,16 @@ import type {
 } from "../types.js";
 import { ValidationError } from "../utils/errors.js";
 import { runProviders } from "../providers/provider-runner.js";
+import { concurrentMap } from "../utils/concurrent-map.js";
 
 type LookupResult = { response: ApiSuccessResponse; provider: string };
 
 type BatchItemResult =
-  | { ok: true; text: string; provider: string; cache: "HIT" | "STALE" | "MISS" }
-  | { ok: false; error: { code: string; message: string; details?: unknown } };
+  | { ok: true; text: string }
+  | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } };
 
 const BATCH_MAX_ITEMS = 50;
+const BATCH_CONCURRENCY = 10;
 
 const inFlightLookups = new Map<string, Promise<LookupResult>>();
 
@@ -73,7 +75,7 @@ export async function registerDictionaryRoutes(
   app: FastifyInstance,
   cache: DictionaryCache,
   providers: DictionaryProvider[],
-  authenticate?: preHandlerHookHandler,
+  authenticate?: onRequestHookHandler,
   rateLimiter?: onRequestHookHandler
 ): Promise<void> {
   const onRequest = [rateLimiter, authenticate].filter(Boolean) as onRequestHookHandler[];
@@ -140,7 +142,7 @@ function handleDictionaryRequest(
 
       if (cacheHit.kind === "fresh") {
         const maxAge = Math.max(0, Math.floor((cacheHit.freshUntil - Date.now()) / 1000));
-        const cacheControl = `public, max-age=${maxAge}, stale-while-revalidate=${config.staleTtlSeconds}`;
+        const cacheControl = buildCacheControl(cacheHit.response, maxAge);
         reply.header("X-Provider", cacheHit.provider);
         return sendWithETag(request, reply, cacheHit.response, "HIT", cacheControl);
       }
@@ -159,7 +161,7 @@ function handleDictionaryRequest(
       persistToCache(app, cache, cacheKey, response, provider);
 
       const maxAge = isCacheableDictionaryResponse(response) ? config.cacheTtlSeconds : config.emptyCacheTtlSeconds;
-      const cacheControl = `public, max-age=${maxAge}, stale-while-revalidate=${config.staleTtlSeconds}`;
+      const cacheControl = buildCacheControl(response, maxAge);
       reply.header("X-Provider", provider);
       return sendWithETag(request, reply, response, "MISS", cacheControl);
     } catch (error) {
@@ -178,6 +180,18 @@ function handleDictionaryRequest(
 
 function isCacheableDictionaryResponse(response: ApiSuccessResponse): boolean {
   return response.data.text.length > 0;
+}
+
+function buildCacheControl(response: ApiSuccessResponse, maxAge: number): string {
+  if (!isCacheableDictionaryResponse(response) && config.emptyCacheTtlSeconds === 0) {
+    return "no-store";
+  }
+
+  const staleTtl = isCacheableDictionaryResponse(response)
+    ? config.staleTtlSeconds
+    : config.emptyCacheTtlSeconds;
+
+  return `public, max-age=${maxAge}, stale-while-revalidate=${staleTtl}`;
 }
 
 function computeETag(text: string): string {
@@ -272,8 +286,10 @@ function handleBatchRequest(
       source: string; target: string; text: string; provider?: string
     }>;
 
-    const results = await Promise.all(
-      items.map((item): Promise<BatchItemResult> => translateItem(app, cache, providers, item))
+    const results = await concurrentMap(
+      items,
+      BATCH_CONCURRENCY,
+      (item): Promise<BatchItemResult> => translateItem(app, cache, providers, item)
     );
 
     return reply.send({ ok: true, data: results });
@@ -324,12 +340,12 @@ async function translateItem(
     const cacheHit = await cache.get(cacheKey);
 
     if (cacheHit.kind === "fresh") {
-      return { ok: true, text: cacheHit.response.data.text, provider: cacheHit.provider, cache: "HIT" };
+      return { ok: true, text: cacheHit.response.data.text };
     }
 
     if (cacheHit.kind === "stale" && isCacheableDictionaryResponse(cacheHit.response)) {
       revalidateInBackground(app, cache, cacheKey, query, activeProviders);
-      return { ok: true, text: cacheHit.response.data.text, provider: cacheHit.provider, cache: "STALE" };
+      return { ok: true, text: cacheHit.response.data.text };
     }
   } catch (error) {
     app.log.warn({ error, cacheKey }, "Dictionary cache read failed");
@@ -338,7 +354,7 @@ async function translateItem(
   try {
     const { response, provider } = await coalescedLookup(cacheKey, query, activeProviders);
     persistToCache(app, cache, cacheKey, response, provider);
-    return { ok: true, text: response.data.text, provider, cache: "MISS" };
+    return { ok: true, text: response.data.text };
   } catch {
     return {
       ok: false,
@@ -350,15 +366,30 @@ async function translateItem(
   }
 }
 
+/**
+ * Common language-tag subset: 2–8 alpha primary tag, optional alphanumeric subtags.
+ * Covers: en, ru, zh-CN, zh-Hant-TW, and the common "auto" pseudo-code.
+ */
+const LANGUAGE_CODE_RE = /^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*$/;
+
 function parseDictionaryRequestBody(rawBody: unknown): DictionaryQuery {
   // Types, maxLengths and required fields are validated by Fastify schema before reaching here.
-  // Only remaining check: fields must be non-empty after normalization.
+  // Remaining checks: non-empty after normalization + valid BCP 47 language codes.
   const body = rawBody as { source: string; target: string; text: string };
   const query = normalizeQuery(body);
 
   const missing = (["source", "target", "text"] as const).filter((k) => !query[k]);
   if (missing.length > 0) {
     throw new ValidationError("Required body fields are missing or empty", { missing });
+  }
+
+  for (const field of ["source", "target"] as const) {
+    if (!LANGUAGE_CODE_RE.test(query[field])) {
+      throw new ValidationError(
+        `Invalid language code for "${field}": "${query[field]}"`,
+        { [field]: query[field] }
+      );
+    }
   }
 
   return query;

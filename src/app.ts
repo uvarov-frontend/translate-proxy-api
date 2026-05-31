@@ -1,7 +1,7 @@
 import cors from "@fastify/cors";
 import compress from "@fastify/compress";
 import fastifyJwt from "@fastify/jwt";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest, type onRequestHookHandler } from "fastify";
 import { Redis } from "ioredis";
 import type { DictionaryCache } from "./cache/dictionary-cache.js";
 import { config } from "./config/env.js";
@@ -15,8 +15,18 @@ export async function buildApp(cache: DictionaryCache) {
     logger: {
       level: config.logLevel
     },
+    // Trust X-Forwarded-For from any upstream — safe because the port is bound
+    // to 127.0.0.1 and only nginx can reach it from outside.
     trustProxy: true,
-    bodyLimit: 256 * 1024
+    bodyLimit: 256 * 1024,
+    // Disable AJV type coercion so {"text": 42} correctly returns 400 instead of
+    // silently casting the number to a string and accepting the request.
+    ajv: {
+      customOptions: {
+        coerceTypes: false,
+        useDefaults: false
+      }
+    }
   });
 
   await app.register(compress, { global: true, threshold: 512 });
@@ -49,7 +59,7 @@ export async function buildApp(cache: DictionaryCache) {
     maxAge: 600
   });
 
-  let authenticate: ((request: FastifyRequest, reply: FastifyReply) => Promise<void>) | undefined;
+  let authenticate: onRequestHookHandler | undefined;
 
   if (config.authEnabled) {
     await app.register(fastifyJwt, {
@@ -85,20 +95,9 @@ export async function buildApp(cache: DictionaryCache) {
   });
 
   app.setErrorHandler(async (error, _request, reply) => {
-    const appError = error as { message?: string; statusCode?: number; code?: string };
+    const appError = error as { message?: string; statusCode?: number };
     const statusCode =
       appError.statusCode && appError.statusCode >= 400 ? appError.statusCode : 500;
-
-    if (statusCode === 429) {
-      const retryAfter = Number(reply.getHeader("retry-after") ?? 0);
-      return reply.code(429).send({
-        ok: false,
-        error: {
-          code: "RATE_LIMITED",
-          message: `Too many requests — retry after ${retryAfter} seconds`
-        }
-      });
-    }
 
     return reply.code(statusCode).send({
       ok: false,
@@ -110,12 +109,12 @@ export async function buildApp(cache: DictionaryCache) {
   });
 
   app.get("/", async (_request, reply) => {
-    return reply.code(403).send({
+    return reply.code(404).send({
       ok: false,
       error: {
-        code: "FORBIDDEN",
+        code: "NOT_FOUND",
         message: "Use POST /translate/ with source, target and text JSON fields"
-      },
+      }
     });
   });
 

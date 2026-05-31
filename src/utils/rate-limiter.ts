@@ -3,12 +3,36 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 
 export type RateLimiterHook = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
+/**
+ * Atomic Lua script: INCR + conditional PEXPIRE + PTTL in a single round-trip.
+ * Eliminates the race condition where a key could be left without a TTL
+ * if the process crashed between INCR and PEXPIRE.
+ */
+const LUA_RATE_LIMIT = `
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('PTTL', KEYS[1])
+return {current, ttl}
+`;
+
 export function createRateLimiter(
   redis: Redis | undefined,
   max: number,
   windowMs: number
 ): RateLimiterHook {
   const inMemory = new Map<string, { count: number; expires: number }>();
+
+  // Purge expired entries every 5 minutes to prevent unbounded memory growth
+  // when the in-memory fallback is active (i.e. Redis is unavailable).
+  const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [k, v] of inMemory) {
+      if (v.expires < now) inMemory.delete(k);
+    }
+  }, 5 * 60_000);
+  cleanupInterval.unref(); // don't keep the event loop alive just for cleanup
 
   return async function rateLimiter(request: FastifyRequest, reply: FastifyReply): Promise<void> {
     const key = `rl:translate:${request.ip}`;
@@ -17,9 +41,12 @@ export function createRateLimiter(
 
     try {
       if (redis) {
-        current = await redis.incr(key);
-        if (current === 1) await redis.pexpire(key, windowMs);
-        ttlMs = Math.max(0, await redis.pttl(key));
+        const result = (await redis.eval(LUA_RATE_LIMIT, 1, key, String(windowMs))) as [
+          number,
+          number
+        ];
+        current = result[0];
+        ttlMs = Math.max(0, result[1]);
       } else {
         const now = Date.now();
         const entry = inMemory.get(key);

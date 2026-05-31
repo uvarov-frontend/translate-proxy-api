@@ -499,14 +499,7 @@
         batchList.innerHTML = data.data.map((item, i) => {
           const num = `<span class="batch-num">${i + 1}</span>`;
           if (item.ok) {
-            const badges = [
-              item.provider && `provider: ${item.provider}`,
-              item.cache    && `cache: ${item.cache}`
-            ].filter(Boolean);
-            const badgesHtml = badges.length
-              ? `<div class="badges" style="margin-top:6px">${badges.map(b => `<span class="badge">${escapeHtml(b)}</span>`).join('')}</div>`
-              : '';
-            return `<div class="batch-item">${num}<div><div class="batch-text">${escapeHtml(item.text)}</div>${badgesHtml}</div></div>`;
+            return `<div class="batch-item">${num}<div class="batch-text">${escapeHtml(item.text)}</div></div>`;
           } else {
             return `<div class="batch-item batch-error">${num}<span class="batch-text">${escapeHtml(item.error?.message ?? 'Error')}</span></div>`;
           }

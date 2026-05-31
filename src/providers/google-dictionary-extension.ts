@@ -101,23 +101,28 @@ function readString(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+const WALK_MAX_DEPTH = 20;
+
 function walkJson(
   value: unknown,
   visitor: (key: string | undefined, value: unknown) => void,
-  key?: string
+  key?: string,
+  depth = 0
 ): void {
+  if (depth > WALK_MAX_DEPTH) return;
+
   visitor(key, value);
 
   if (Array.isArray(value)) {
     for (const item of value) {
-      walkJson(item, visitor);
+      walkJson(item, visitor, undefined, depth + 1);
     }
     return;
   }
 
   if (value && typeof value === "object") {
     for (const [nestedKey, nestedValue] of Object.entries(value)) {
-      walkJson(nestedValue, visitor, nestedKey);
+      walkJson(nestedValue, visitor, nestedKey, depth + 1);
     }
   }
 }

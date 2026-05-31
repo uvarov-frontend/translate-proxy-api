@@ -17,12 +17,13 @@ Responses are cached in Redis so repeated lookups return in under 1 ms without h
 ## Features
 
 - **JWT authentication** — enabled by default; pass the token your auth service already issues, no extra login step
-- **Batch translation** — translate up to 50 texts in a single request; items run in parallel and fail independently
+- **Batch translation** — translate up to 50 texts in a single request; items are processed with bounded concurrency (up to 10 upstream calls at a time) and fail independently
 - **Smart caching** — stale responses are served instantly while a background refresh runs silently
 - **Request coalescing** — dozens of identical simultaneous requests result in a single upstream call
-- **Fallback chain** — configure multiple providers in priority order; if one fails the next is tried automatically
+- **Fallback chain** — configure multiple providers in priority order; the next provider is tried automatically on error or empty response
+- **Circuit breaker** — a provider that fails 5 times in a row is skipped for 30 seconds, then probed again; other providers continue unaffected
 - **Provider pinning** — pin a specific provider per request instead of using the fallback chain
-- **Rate limiting** — per-IP, backed by Redis, works correctly across multiple instances
+- **Rate limiting** — per-IP, shared across all `/translate/` endpoints, backed by Redis; runtime limiter failures are fail-open
 - **Response compression** — brotli / gzip out of the box
 - **ETag / 304 support** — clients can skip downloading a response they already have
 
@@ -45,7 +46,7 @@ services:
     image: uvarovfrontend/translate-proxy-api:latest
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3010:3010"
+      - "127.0.0.1:3010:3000"
     env_file:
       - .env
     depends_on:
@@ -77,6 +78,18 @@ docker compose up -d --build
 ```
 
 The service is available at `http://127.0.0.1:3010`. Put nginx or Caddy in front for TLS.
+
+When proxying through nginx, overwrite `X-Forwarded-For` with the verified client IP so clients cannot spoof the address used by the per-IP rate limiter:
+
+```nginx
+location ^~ /translate/ {
+    proxy_pass http://127.0.0.1:3010;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
 
 **Development** (auto-restart on file changes):
 
@@ -128,7 +141,7 @@ ETag: "3a1f9c2b4d6e8a0b"
 
 ### POST /translate/batch/
 
-Translate up to 50 texts in one request. Items are processed in parallel — one failure does not abort the rest. Each item supports the same fields as the single endpoint, including the optional `"provider"`.
+Translate up to 50 texts in one request. Items are processed with up to 10 concurrent upstream calls — one failure does not abort the rest. Each item supports the same fields as the single endpoint, including the optional `"provider"`.
 
 ```bash
 curl -X POST 'http://127.0.0.1:3010/translate/batch/' \
@@ -237,9 +250,11 @@ All settings live in `.env` (gitignored, never committed). Copy `.env.example` t
 | `EMPTY_CACHE_TTL_SECONDS`| `60`                                           | TTL for empty results; `0` disables caching of empty results  |
 | `HTTP_TIMEOUT_MS`        | `5000`                                         | Upstream request timeout in milliseconds                      |
 | `CORS_ORIGINS`           | `*`                                            | Allowed origins, comma-separated, or `*` for all              |
-| `RATE_LIMIT_MAX`         | `60`                                           | Max requests per window per IP                                |
+| `RATE_LIMIT_MAX`         | `60`                                           | Max requests per window per IP, shared across all `/translate/` endpoints |
 | `RATE_LIMIT_WINDOW_MS`   | `60000` (1 min)                                | Rate limit window in milliseconds                             |
 | `PROVIDER_ORDER`         | `google-translate,google-dictionary-extension` | Provider priority list, comma-separated                       |
+
+Redis is required when the application starts because the translation cache depends on it. If the rate limiter loses Redis after startup, requests are allowed through until Redis recovers. This fail-open behavior keeps translations available during a runtime Redis outage.
 
 ---
 
@@ -277,7 +292,7 @@ The proxy ships with three providers out of the box:
 | `google-dictionary-extension` | Google Dictionary Extension API  |
 | `yandex-translate`            | Unofficial Yandex Translate API  |
 
-`PROVIDER_ORDER` controls priority. The first provider is tried; if it fails the next one takes over automatically:
+`PROVIDER_ORDER` controls priority. The first provider is tried; if it fails **or returns an empty translation** the next one takes over automatically:
 
 ```
 # single provider

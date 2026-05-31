@@ -73,5 +73,13 @@ export const config: AppConfig = {
 };
 
 if (config.authEnabled && !config.jwtSecret) {
-  throw new Error("JWT_SECRET env variable is required when AUTH_ENABLED=true. Set AUTH_ENABLED=false to disable authentication.");
+  throw new Error(
+    "JWT_SECRET env variable is required when AUTH_ENABLED=true. Set AUTH_ENABLED=false to disable authentication."
+  );
+}
+
+if (config.providerOrder.length === 0) {
+  throw new Error(
+    "PROVIDER_ORDER must contain at least one provider name (e.g. google-translate)."
+  );
 }
