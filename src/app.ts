@@ -16,7 +16,7 @@ export async function buildApp(cache: DictionaryCache) {
       level: config.logLevel
     },
     trustProxy: true,
-    bodyLimit: 16 * 1024
+    bodyLimit: 256 * 1024
   });
 
   await app.register(compress, { global: true, threshold: 512 });

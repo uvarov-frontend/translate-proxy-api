@@ -13,11 +13,14 @@ Responses are cached in Redis so repeated lookups return in under 1 ms without h
 ## Features
 
 - **JWT authentication** — enabled by default; pass the token your auth service already issues, no extra login step
+- **Batch translation** — translate up to 50 texts in a single request; items run in parallel and fail independently
 - **Smart caching** — stale responses are served instantly while a background refresh runs silently
 - **Request coalescing** — dozens of identical simultaneous requests result in a single upstream call
 - **Fallback chain** — configure multiple providers in priority order; if one fails the next is tried automatically
+- **Provider pinning** — pin a specific provider per request instead of using the fallback chain
 - **Rate limiting** — per-IP, backed by Redis, works correctly across multiple instances
 - **Response compression** — brotli / gzip out of the box
+- **ETag / 304 support** — clients can skip downloading a response they already have
 
 ---
 
@@ -86,7 +89,9 @@ docker compose down      # stop everything
 
 ## Usage
 
-### Translate text
+### POST /translate/
+
+Translate a single text.
 
 ```bash
 curl -X POST 'http://127.0.0.1:3010/translate/' \
@@ -96,24 +101,10 @@ curl -X POST 'http://127.0.0.1:3010/translate/' \
 ```
 
 ```json
-{
-  "ok": true,
-  "data": {
-    "text": "Доброе утро"
-  }
-}
+{ "ok": true, "data": { "text": "Доброе утро" } }
 ```
-
-### Check response headers
 
 Add `-i` to see cache status, provider and caching directives:
-
-```bash
-curl -i -X POST 'http://127.0.0.1:3010/translate/' \
-  -H 'Authorization: Bearer <your_jwt>' \
-  -H 'Content-Type: application/json' \
-  --data '{"source":"en","target":"ru","text":"Good morning"}'
-```
 
 ```
 X-Cache: HIT
@@ -122,27 +113,50 @@ Cache-Control: public, max-age=21340, stale-while-revalidate=604800
 ETag: "3a1f9c2b4d6e8a0b"
 ```
 
-### Pin a specific provider
+**Request body**
 
-Add `"provider"` to the request body to use a specific provider instead of the fallback chain:
+| Field      | Type   | Required | Limit                                         |
+|------------|--------|----------|-----------------------------------------------|
+| `source`   | string | yes      | max 32 chars                                  |
+| `target`   | string | yes      | max 32 chars                                  |
+| `text`     | string | yes      | max 2000 chars                                |
+| `provider` | string | no       | Pin a specific provider from `PROVIDER_ORDER` |
+
+### POST /translate/batch/
+
+Translate up to 50 texts in one request. Items are processed in parallel — one failure does not abort the rest. Each item supports the same fields as the single endpoint, including the optional `"provider"`.
 
 ```bash
-curl -X POST 'http://127.0.0.1:3010/translate/' \
+curl -X POST 'http://127.0.0.1:3010/translate/batch/' \
   -H 'Authorization: Bearer <your_jwt>' \
   -H 'Content-Type: application/json' \
-  --data '{"source":"en","target":"ru","text":"Good morning","provider":"yandex-translate"}'
+  --data '[
+    {"source":"en","target":"ru","text":"Good morning"},
+    {"source":"en","target":"ru","text":"Good night","provider":"yandex-translate"}
+  ]'
 ```
 
-Available values match `PROVIDER_ORDER`: `google-translate`, `google-dictionary-extension`, `yandex-translate`.
+```json
+{
+  "ok": true,
+  "data": [
+    { "ok": true, "text": "Доброе утро" },
+    { "ok": true, "text": "Спокойной ночи" }
+  ]
+}
+```
 
-### Request body
+If an item fails, the rest still succeed — it returns `ok: false` inline:
 
-| Field      | Type   | Required | Limit          |
-|------------|--------|----------|----------------|
-| `source`   | string | yes      | max 32 chars   |
-| `target`   | string | yes      | max 32 chars   |
-| `text`     | string | yes      | max 2000 chars |
-| `provider` | string | no       | Pin a specific provider from `PROVIDER_ORDER` |
+```json
+{
+  "ok": true,
+  "data": [
+    { "ok": true,  "text": "Доброе утро" },
+    { "ok": false, "error": { "code": "PROVIDER_UNAVAILABLE", "message": "Dictionary provider is temporarily unavailable" } }
+  ]
+}
+```
 
 ### Error responses
 

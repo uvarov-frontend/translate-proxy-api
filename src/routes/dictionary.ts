@@ -14,6 +14,12 @@ import { runProviders } from "../providers/provider-runner.js";
 
 type LookupResult = { response: ApiSuccessResponse; provider: string };
 
+type BatchItemResult =
+  | { ok: true; text: string }
+  | { ok: false; error: { code: string; message: string; details?: unknown } };
+
+const BATCH_MAX_ITEMS = 50;
+
 const inFlightLookups = new Map<string, Promise<LookupResult>>();
 
 const dictionarySchema = {
@@ -44,6 +50,25 @@ const dictionarySchema = {
   }
 };
 
+const batchSchema = {
+  body: {
+    type: "array",
+    minItems: 1,
+    maxItems: BATCH_MAX_ITEMS,
+    items: {
+      type: "object",
+      required: ["source", "target", "text"],
+      properties: {
+        source: { type: "string", maxLength: 32 },
+        target: { type: "string", maxLength: 32 },
+        text: { type: "string", maxLength: 2000 },
+        provider: { type: "string", maxLength: 64 }
+      },
+      additionalProperties: false
+    }
+  }
+};
+
 export async function registerDictionaryRoutes(
   app: FastifyInstance,
   cache: DictionaryCache,
@@ -58,6 +83,16 @@ export async function registerDictionaryRoutes(
       ...(authenticate ? { onRequest: authenticate } : {})
     },
     handleDictionaryRequest(app, cache, providers)
+  );
+
+  app.post(
+    "/translate/batch/",
+    {
+      schema: batchSchema,
+      config: { rateLimit: {} },
+      ...(authenticate ? { onRequest: authenticate } : {})
+    },
+    handleBatchRequest(app, cache, providers)
   );
 }
 
@@ -230,6 +265,94 @@ async function lookup(
     response: { ok: true, data: result.data },
     provider: result.provider
   };
+}
+
+function handleBatchRequest(
+  app: FastifyInstance,
+  cache: DictionaryCache,
+  providers: DictionaryProvider[]
+) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const items = request.body as Array<{
+      source: string; target: string; text: string; provider?: string
+    }>;
+
+    const results = await Promise.all(
+      items.map((item): Promise<BatchItemResult> => translateItem(app, cache, providers, item))
+    );
+
+    return reply.send({ ok: true, data: results });
+  };
+}
+
+async function translateItem(
+  app: FastifyInstance,
+  cache: DictionaryCache,
+  providers: DictionaryProvider[],
+  item: { source: string; target: string; text: string; provider?: string }
+): Promise<BatchItemResult> {
+  let query: DictionaryQuery;
+
+  try {
+    query = parseDictionaryRequestBody(item);
+  } catch (error) {
+    return {
+      ok: false,
+      error: {
+        code: "BAD_REQUEST",
+        message: error instanceof Error ? error.message : "Invalid item",
+        details: error instanceof ValidationError ? error.details : undefined
+      }
+    };
+  }
+
+  const pinnedProviderName = item.provider?.trim().toLowerCase();
+  let activeProviders = providers;
+
+  if (pinnedProviderName) {
+    const pinned = providers.find((p) => p.name === pinnedProviderName);
+    if (!pinned) {
+      return {
+        ok: false,
+        error: {
+          code: "BAD_REQUEST",
+          message: `Unknown provider: "${pinnedProviderName}". Available: ${providers.map((p) => p.name).join(", ")}`
+        }
+      };
+    }
+    activeProviders = [pinned];
+  }
+
+  const cacheKey = createDictionaryCacheKey(query, pinnedProviderName);
+
+  try {
+    const cacheHit = await cache.get(cacheKey);
+
+    if (cacheHit.kind === "fresh") {
+      return { ok: true, text: cacheHit.response.data.text };
+    }
+
+    if (cacheHit.kind === "stale" && isCacheableDictionaryResponse(cacheHit.response)) {
+      revalidateInBackground(app, cache, cacheKey, query, activeProviders);
+      return { ok: true, text: cacheHit.response.data.text };
+    }
+  } catch (error) {
+    app.log.warn({ error, cacheKey }, "Dictionary cache read failed");
+  }
+
+  try {
+    const { response, provider } = await coalescedLookup(cacheKey, query, activeProviders);
+    persistToCache(app, cache, cacheKey, response, provider);
+    return { ok: true, text: response.data.text };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "PROVIDER_UNAVAILABLE",
+        message: "Dictionary provider is temporarily unavailable"
+      }
+    };
+  }
 }
 
 function parseDictionaryRequestBody(rawBody: unknown): DictionaryQuery {
