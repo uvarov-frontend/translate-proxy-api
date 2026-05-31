@@ -133,7 +133,7 @@ curl -X POST 'http://127.0.0.1:3010/translate/' \
   --data '{"source":"en","target":"ru","text":"Good morning","provider":"yandex-translate"}'
 ```
 
-Available values match `PROVIDER_ORDER`: `google-translate`, `yandex-translate`, `google-dictionary-extension`.
+Available values match `PROVIDER_ORDER`: `google-translate`, `google-dictionary-extension`, `yandex-translate`.
 
 ### Request body
 
@@ -269,7 +269,7 @@ PROVIDER_ORDER=google-translate
 PROVIDER_ORDER=google-translate,google-dictionary-extension
 
 # three providers, maximum resilience
-PROVIDER_ORDER=google-translate,yandex-translate,google-dictionary-extension
+PROVIDER_ORDER=google-translate,google-dictionary-extension,yandex-translate
 ```
 
 **Adding a custom provider:**

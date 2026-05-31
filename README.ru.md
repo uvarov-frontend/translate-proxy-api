@@ -131,7 +131,7 @@ curl -X POST 'http://127.0.0.1:3010/translate/' \
   --data '{"source":"en","target":"ru","text":"Good morning","provider":"yandex-translate"}'
 ```
 
-Доступные значения соответствуют `PROVIDER_ORDER`: `google-translate`, `yandex-translate`, `google-dictionary-extension`.
+Доступные значения соответствуют `PROVIDER_ORDER`: `google-translate`, `google-dictionary-extension`, `yandex-translate`.
 
 ### Тело запроса
 
@@ -267,7 +267,7 @@ PROVIDER_ORDER=google-translate
 PROVIDER_ORDER=google-translate,google-dictionary-extension
 
 # три провайдера, максимальная надёжность
-PROVIDER_ORDER=google-translate,yandex-translate,google-dictionary-extension
+PROVIDER_ORDER=google-translate,google-dictionary-extension,yandex-translate
 ```
 
 **Добавить собственный провайдер:**
